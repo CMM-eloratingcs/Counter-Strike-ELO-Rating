@@ -59,7 +59,7 @@ REM ── 3. Publica no GitHub Pages ──────────────
 echo [%time%] Publicando no GitHub...
 echo [%time%] Publicando no GitHub... >> "%LOG_FILE%"
 
-git -C "%HLTV_DIR%" add elo_standings_delta.json >> "%LOG_FILE%" 2>&1
+git -C "%HLTV_DIR%" add -f elo_standings_delta.json >> "%LOG_FILE%" 2>&1
 git -C "%HLTV_DIR%" commit -m "auto: update %date% %time:~0,5%" >> "%LOG_FILE%" 2>&1
 git -C "%HLTV_DIR%" push origin main >> "%LOG_FILE%" 2>&1
 
