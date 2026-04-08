@@ -184,7 +184,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
   <button class="filter-btn" onclick="setMin(10,this)">≥10</button>
   <button class="filter-btn" onclick="setMin(20,this)">≥20</button>
   <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-  <button class="filter-btn" id="btn-active" onclick="toggleActive(this)" title="Esconde times sem partidas nos últimos 6 meses">⏱ Ocultar inativos</button>
+  <button class="filter-btn" id="btn-active" onclick="toggleActive(this)" title="Esconde times sem partidas nos últimos 6 meses" style="border-color:var(--border);color:var(--text2)">⏱ Ocultar inativos</button>
   <div class="controls-right" id="result-count">— times</div>
 </div>
 
@@ -318,7 +318,12 @@ function init() {
 
 // ── Dados do snapshot atual ───────────────────────────────────────────────────
 function getCurrentData() {
-  if (!snapshots.length) return (mode === 'org' ? DATA?.orgRanking : DATA?.rosterRanking) || [];
+  // Se não há snapshots ou está no último, usa o ranking final completo
+  const isLatest = !snapshots.length || sliderIdx >= snapshots.length - 1;
+
+  if (isLatest) {
+    return (mode === 'org' ? DATA?.orgRanking : DATA?.rosterRanking) || [];
+  }
 
   const snap = snapshots[sliderIdx];
 
@@ -337,13 +342,12 @@ function getCurrentData() {
 
   return Object.entries(snap.rosters || {})
     .map(([id, d]) => {
-      // Suporta formato compacto ([name, rating]) e antigo ({name, rating, ...})
       const name   = Array.isArray(d) ? d[0] : d.name;
       const rating = Array.isArray(d) ? d[1] : d.rating;
+      // wins/losses/lastMatchTs vêm do ranking final (totais históricos)
       const full   = DATA.rosterRanking?.find(r => r.rosterId === parseInt(id));
-      return { name, rating, wins: full?.wins||0, losses: full?.losses||0, matches: (full?.wins||0)+(full?.losses||0), players: full?.players||[], rosterId: parseInt(id), lastMatchTs: full?.lastMatchTs||0 };
+      return { name, rating, wins: full?.wins||0, losses: full?.losses||0, matches: full?.matches||1, players: full?.players||[], rosterId: parseInt(id), lastMatchTs: full?.lastMatchTs||0 };
     })
-    .filter(t => t.matches > 0)
     .sort((a,b) => b.rating - a.rating)
     .map((t,i) => ({...t, rank: i+1}));
 }
@@ -664,7 +668,15 @@ function sort(field) {
 
 function toggleActive(btn) {
   hideInactive = !hideInactive;
-  btn.classList.toggle('active', hideInactive);
+  if (hideInactive) {
+    btn.style.borderColor = 'var(--red)';
+    btn.style.color       = 'var(--red)';
+    btn.style.background  = 'rgba(255,51,85,.08)';
+  } else {
+    btn.style.borderColor = 'var(--border)';
+    btn.style.color       = 'var(--text2)';
+    btn.style.background  = '';
+  }
   renderTable();
 }
 
