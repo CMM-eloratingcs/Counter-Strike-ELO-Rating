@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VRS ELO MAPS — CS2 Map-Based Ranking</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{--bg:#080c10;--bg2:#0d1420;--bg3:#111d2e;--border:#1e3a5f;--neon:#00d4ff;--neon2:#ff6b35;--gold:#ffd700;--silver:#c0c8d8;--bronze:#cd7f32;--green:#00ff88;--red:#ff3355;--purple:#c084fc;--text:#c8d8e8;--text2:#6a8aaa;--mono:'Share Tech Mono',monospace;--sans:'Barlow Condensed',sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,.015) 2px,rgba(0,212,255,.015) 4px);pointer-events:none;z-index:1000}
+
+.header{padding:1.5rem 2rem 0;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(196,120,252,.04) 0%,transparent 100%)}
+.header-top{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:1rem;padding-bottom:1.25rem}
+.logo-tag{font-size:10px;color:var(--purple);letter-spacing:4px;opacity:.7}
+.logo-title{font-family:var(--sans);font-size:clamp(2rem,5vw,3rem);font-weight:900;color:#fff;line-height:1}
+.logo-title span{color:var(--purple);text-shadow:0 0 30px var(--purple)}
+.logo-sub{font-size:10px;color:var(--text2);letter-spacing:2px;margin-top:.2rem}
+.header-stats{display:flex;gap:2rem;align-items:flex-end;flex-wrap:wrap}
+.stat-box{text-align:right}
+.stat-label{font-size:9px;color:var(--text2);letter-spacing:2px;text-transform:uppercase}
+.stat-value{font-family:var(--sans);font-size:1.6rem;font-weight:700;color:var(--purple);line-height:1}
+
+.mode-tabs{display:flex;border-bottom:1px solid var(--border)}
+.mode-tab{padding:.75rem 1.5rem;font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text2);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .2s}
+.mode-tab.active{color:var(--purple);border-bottom-color:var(--purple);background:rgba(196,120,252,.05)}
+.tab-badge{display:inline-block;font-size:9px;padding:1px 5px;border-radius:2px;margin-left:6px;vertical-align:middle}
+.tb-r{background:rgba(196,120,252,.2);color:var(--purple)}
+.tb-o{background:rgba(255,107,53,.2);color:var(--neon2)}
+.tb-p{background:rgba(255,215,0,.2);color:var(--gold)}
+
+.slider-panel{background:var(--bg2);border-bottom:1px solid var(--border);padding:1rem 2rem;display:none}
+.slider-panel.visible{display:block}
+.slider-top{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:.75rem}
+.slider-label{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;white-space:nowrap}
+.date-display{font-family:var(--sans);font-size:1.1rem;font-weight:700;color:var(--purple);min-width:200px}
+.play-btn{padding:.35rem .9rem;font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);cursor:pointer;letter-spacing:1px;transition:all .15s}
+.play-btn:hover,.play-btn.playing{border-color:var(--purple);color:var(--purple)}
+.slider-range{display:flex;align-items:center;gap:.75rem;flex:1}
+.date-start,.date-end{font-size:10px;color:var(--text2);white-space:nowrap}
+input[type=range]{flex:1;-webkit-appearance:none;height:3px;background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--purple);box-shadow:0 0 8px var(--purple);cursor:pointer}
+.speed-btns{display:flex;gap:.35rem}
+.speed-btn{padding:.2rem .5rem;font-family:var(--mono);font-size:10px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);cursor:pointer;transition:all .15s}
+.speed-btn.active{border-color:var(--neon2);color:var(--neon2)}
+
+.chart-panel{background:var(--bg2);border-bottom:1px solid var(--border);padding:1rem 2rem;display:none}
+.chart-panel.visible{display:block}
+.chart-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem}
+.chart-title{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase}
+.chart-teams{display:flex;gap:.5rem;flex-wrap:wrap}
+.chart-team-badge{padding:.2rem .6rem;font-size:10px;font-family:var(--mono);border:1px solid;border-radius:2px;cursor:pointer;transition:all .15s;opacity:.5}
+.chart-team-badge.active{opacity:1}
+.chart-wrap{position:relative;height:220px}
+
+.controls{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;padding:.75rem 2rem;border-bottom:1px solid var(--border);background:var(--bg2)}
+.search-wrap{display:flex;align-items:center;gap:.5rem;background:var(--bg3);border:1px solid var(--border);padding:.4rem .75rem;flex:1;max-width:280px}
+.search-wrap span{color:var(--text2);font-size:12px}
+.search-wrap input{background:none;border:none;outline:none;color:var(--text);font-family:var(--mono);font-size:12px;width:100%}
+.search-wrap input::placeholder{color:var(--text2)}
+.filter-btn{padding:.4rem .8rem;font-family:var(--mono);font-size:10px;letter-spacing:1px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);cursor:pointer;transition:all .15s;text-transform:uppercase}
+.filter-btn:hover,.filter-btn.active{border-color:var(--purple);color:var(--purple);background:rgba(196,120,252,.08)}
+.controls-right{margin-left:auto;font-size:10px;color:var(--text2);letter-spacing:1px}
+
+.main{padding:1.5rem 2rem}
+.ranking-table{width:100%;border-collapse:collapse}
+.ranking-table thead th{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text2);padding:.5rem 1rem;text-align:left;border-bottom:1px solid var(--border);cursor:pointer;white-space:nowrap}
+.ranking-table thead th:hover{color:var(--purple)}
+.ranking-table thead th.sorted{color:var(--purple)}
+.ranking-table thead th.sorted::after{content:' ▼';font-size:7px}
+.ranking-table thead th.sorted.asc::after{content:' ▲'}
+.ranking-table tbody tr{border-bottom:1px solid rgba(30,58,95,.4);transition:background .1s}
+.ranking-table tbody tr:hover{background:rgba(196,120,252,.04)}
+.ranking-table td{padding:.65rem 1rem;font-size:13px;vertical-align:middle}
+.col-rank{width:55px;text-align:center}
+.rank-num{font-family:var(--sans);font-size:1rem;font-weight:700;color:var(--text2)}
+.rank-1 .rank-num{color:var(--gold);text-shadow:0 0 12px rgba(255,215,0,.5);font-size:1.2rem}
+.rank-2 .rank-num{color:var(--silver)}
+.rank-3 .rank-num{color:var(--bronze)}
+.rank-1 td:first-child{border-left:2px solid var(--gold)}
+.rank-2 td:first-child{border-left:2px solid var(--silver)}
+.rank-3 td:first-child{border-left:2px solid var(--bronze)}
+.team-name{font-family:var(--sans);font-size:.95rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:.5rem}
+.team-players{font-size:9px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px}
+.team-players span{color:var(--text)}
+.rating-val{font-family:var(--sans);font-size:1.2rem;font-weight:700;color:var(--purple)}
+.rating-bar-wrap{height:2px;background:var(--bg3);border-radius:2px;width:80px;margin-top:3px}
+.rating-bar{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--purple),var(--neon2))}
+.win-count{color:var(--green);font-weight:600}
+.loss-count{color:var(--red)}
+.wr-badge{display:inline-block;padding:2px 7px;font-size:10px;font-weight:600;border-radius:2px}
+.wr-high{background:rgba(0,255,136,.15);color:var(--green)}
+.wr-mid{background:rgba(200,216,232,.1);color:var(--text)}
+.wr-low{background:rgba(255,51,85,.15);color:var(--red)}
+.col-matches{width:75px;text-align:center;color:var(--text2)}
+.col-delta{width:80px;text-align:center}
+.delta-pos{color:var(--green)}
+.delta-neg{color:var(--red)}
+.delta-neu{color:var(--text2)}
+.track-btn{width:16px;height:16px;border-radius:50%;border:1px solid var(--border);background:none;cursor:pointer;transition:all .15s;flex-shrink:0;display:inline-block}
+.track-btn:hover{border-color:var(--purple)}
+.track-btn.tracked{border-color:var(--purple);background:var(--purple)}
+
+/* LOAD PANEL */
+.load-panel{margin:2rem auto;max-width:520px;border:1px dashed var(--border);padding:2.5rem;text-align:center;background:var(--bg2)}
+.load-panel h3{font-family:var(--sans);font-size:1.4rem;font-weight:700;margin-bottom:.5rem;color:var(--purple)}
+.load-panel p{font-size:11px;color:var(--text2);margin-bottom:1.5rem;line-height:1.7}
+.load-panel code{color:var(--neon);font-size:11px}
+.file-drop{border:1px dashed var(--purple);padding:1.5rem;cursor:pointer;transition:all .2s;background:rgba(196,120,252,.03);margin-bottom:1rem}
+.file-drop:hover{background:rgba(196,120,252,.1)}
+.file-drop input{display:none}
+.file-drop-text strong{color:var(--purple);display:block;margin-bottom:.3rem;font-size:14px}
+.file-drop-text span{font-size:11px;color:var(--text2)}
+.progress-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;display:none;margin-top:.75rem}
+.progress-bar-inner{height:100%;background:var(--purple);transition:width .3s;width:0%}
+.how-to{background:var(--bg3);border:1px solid var(--border);padding:1rem;text-align:left;font-size:11px;color:var(--text2);line-height:1.8}
+.how-to strong{color:var(--neon)}
+
+.footer{padding:.75rem 2rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:9px;color:var(--text2);letter-spacing:1px;margin-top:2rem}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+@keyframes glitch{0%,100%{text-shadow:0 0 12px rgba(255,215,0,.5)}20%{text-shadow:-2px 0 var(--purple),2px 0 var(--neon2)}60%{text-shadow:0 0 12px rgba(255,215,0,.5)}}
+.rank-1 .rank-num{animation:glitch 4s infinite}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="logo-tag">// Counter-Strike 2 — MAP-BASED //</div>
+      <div class="logo-title">VRS <span>MAPS</span></div>
+      <div class="logo-sub">ELO CALCULADO POR MAPA INDIVIDUAL — ENGINE v1.0</div>
+    </div>
+    <div class="header-stats">
+      <div class="stat-box"><div class="stat-label">Times</div><div class="stat-value" id="stat-teams">—</div></div>
+      <div class="stat-box"><div class="stat-label">Mapas</div><div class="stat-value" id="stat-maps">—</div></div>
+      <div class="stat-box"><div class="stat-label">Top Rating</div><div class="stat-value" id="stat-top">—</div></div>
+    </div>
+  </div>
+  <div class="mode-tabs">
+    <button class="mode-tab active" onclick="setMode('roster')" id="tab-roster">Roster-Based <span class="tab-badge tb-r">CORE≥3</span></button>
+    <button class="mode-tab" onclick="setMode('org')" id="tab-org">Por Organização <span class="tab-badge tb-o">ELO PURO</span></button>
+    <button class="mode-tab" onclick="setMode('peaks')" id="tab-peaks">Picos Históricos <span class="tab-badge tb-p">★ PEAK</span></button>
+  </div>
+</div>
+
+<div class="slider-panel" id="slider-panel">
+  <div class="slider-top">
+    <span class="slider-label">Data:</span>
+    <div class="date-display" id="date-display">—</div>
+    <button class="play-btn" id="play-btn" onclick="togglePlay()">▶ PLAY</button>
+    <div class="speed-btns">
+      <button class="speed-btn active" onclick="setSpeed(1,this)">1×</button>
+      <button class="speed-btn" onclick="setSpeed(2,this)">2×</button>
+      <button class="speed-btn" onclick="setSpeed(5,this)">5×</button>
+      <button class="speed-btn" onclick="setSpeed(10,this)">10×</button>
+    </div>
+  </div>
+  <div class="slider-range">
+    <span class="date-start" id="date-start">—</span>
+    <input type="range" id="date-slider" min="0" max="100" value="100" oninput="onSlider()">
+    <span class="date-end" id="date-end">—</span>
+  </div>
+</div>
+
+<div class="chart-panel" id="chart-panel">
+  <div class="chart-header">
+    <span class="chart-title">// Evolução do Rating por Mapa //</span>
+    <div class="chart-teams" id="chart-teams"></div>
+  </div>
+  <div class="chart-wrap"><canvas id="evo-chart"></canvas></div>
+</div>
+
+<div class="controls" id="controls-bar" style="display:none">
+  <div class="search-wrap">
+    <span>❯</span>
+    <input type="text" id="search" placeholder="buscar time..." oninput="renderTable()">
+  </div>
+  <button class="filter-btn active" onclick="setMin(0,this)">Todos</button>
+  <button class="filter-btn" onclick="setMin(10,this)">≥10</button>
+  <button class="filter-btn" onclick="setMin(30,this)">≥30</button>
+  <button class="filter-btn" onclick="setMin(50,this)">≥50</button>
+  <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+  <button class="filter-btn" id="btn-active" onclick="toggleActive(this)" style="border-color:var(--border);color:var(--text2)">⏱ Ocultar inativos</button>
+  <div class="controls-right" id="result-count">— times</div>
+</div>
+
+<div class="main">
+  <!-- LOAD PANEL -->
+  <div class="load-panel" id="load-panel">
+    <h3>// VRS ELO MAPS //</h3>
+    <p>Carregue o arquivo gerado pelo <code>elo_ranking_maps.js</code>.<br>
+    Este dashboard é independente — não interfere no site principal.</p>
+
+    <div class="file-drop" onclick="document.getElementById('file-input').click()">
+      <input type="file" id="file-input" accept=".json" onchange="loadFile(event)">
+      <div class="file-drop-text">
+        <strong>📂 Selecionar elo_standings_maps.json</strong>
+        <span>Clique ou arraste o arquivo aqui</span>
+      </div>
+    </div>
+    <div class="progress-bar" id="progress-bar"><div class="progress-bar-inner" id="progress-inner"></div></div>
+
+    <div class="how-to">
+      <strong>Como gerar o arquivo:</strong><br>
+      1. Execute no cmd:<br>
+      <code>node elo_ranking_maps.js matchdata.json elo_standings_maps.json</code><br><br>
+      2. Carregue o <code>elo_standings_maps.json</code> gerado acima.<br>
+      3. O arquivo <strong>não precisa ir para o GitHub</strong> — use localmente.
+    </div>
+  </div>
+
+  <!-- RANKING -->
+  <div id="ranking-container" style="display:none">
+    <table class="ranking-table" id="main-table">
+      <thead>
+        <tr>
+          <th class="col-rank">#</th>
+          <th style="width:22px"></th>
+          <th onclick="sort('name')" id="th-name">Time</th>
+          <th onclick="sort('rating')" id="th-rating" class="sorted" style="width:130px">Rating</th>
+          <th onclick="sort('wins')" id="th-wins" style="width:70px;text-align:center">Maps W</th>
+          <th onclick="sort('losses')" id="th-losses" style="width:70px;text-align:center">Maps D</th>
+          <th onclick="sort('wr')" id="th-wr" style="width:75px;text-align:center">Win%</th>
+          <th onclick="sort('matches')" id="th-matches" class="col-matches">Mapas</th>
+          <th onclick="sort('delta')" id="th-delta" class="col-delta">Δ 1400</th>
+        </tr>
+      </thead>
+      <tbody id="ranking-body"></tbody>
+    </table>
+    <div id="empty-state" style="display:none;text-align:center;padding:3rem;color:var(--text2)">
+      <div style="font-family:var(--sans);font-size:1.2rem;font-weight:700">// SEM RESULTADOS //</div>
+    </div>
+  </div>
+
+  <!-- PEAKS -->
+  <div id="peaks-container" style="display:none">
+    <div style="display:flex;gap:1rem;margin-bottom:1rem">
+      <button class="filter-btn active" id="peaks-tab-roster" onclick="setPeaksMode('roster',this)">Roster-Based</button>
+      <button class="filter-btn" id="peaks-tab-org" onclick="setPeaksMode('org',this)">Por Organização</button>
+    </div>
+    <table class="ranking-table">
+      <thead>
+        <tr>
+          <th class="col-rank">#</th>
+          <th>Time</th>
+          <th style="width:130px">Peak Rating</th>
+          <th style="width:180px">Data do Pico</th>
+          <th style="width:110px">Rating Atual</th>
+          <th style="width:110px">Queda</th>
+        </tr>
+      </thead>
+      <tbody id="peaks-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="footer">
+  <span id="footer-meta">VRS ELO MAPS v1.0 — Map-Based Engine</span>
+  <span id="footer-date"></span>
+</div>
+
+<script>
+const CHART_COLORS = ['#c084fc','#ff6b35','#ffd700','#00ff88','#ff3355','#00d4ff','#fb923c','#34d399'];
+const INIT = 1400;
+const SIX_MONTHS = 6 * 30 * 24 * 3600;
+
+let DATA        = null;
+let snapshots   = [];
+let mode        = 'roster';
+let sliderIdx   = 0;
+let sortField   = 'rating';
+let sortAsc     = false;
+let minMatches  = 0;
+let hideInactive = false;
+let tracked     = [];
+let evoChart    = null;
+let playing     = false;
+let playSpeed   = 1;
+let playTimer   = null;
+let peaksMode   = 'roster';
+
+// ── Load file ─────────────────────────────────────────────────────────────────
+function loadFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  document.getElementById('progress-bar').style.display = 'block';
+  document.getElementById('progress-inner').style.width = '30%';
+  const reader = new FileReader();
+  reader.onload = ev => {
+    document.getElementById('progress-inner').style.width = '70%';
+    setTimeout(() => {
+      try {
+        DATA = JSON.parse(ev.target.result);
+        if (!DATA.rosterRanking && !DATA.orgRanking) throw new Error('Formato inválido — gere com elo_ranking_maps.js');
+        document.getElementById('progress-inner').style.width = '100%';
+        setTimeout(() => init(), 100);
+      } catch(err) {
+        document.getElementById('load-panel').innerHTML =
+          `<h3 style="color:var(--red)">// ERRO //</h3><p style="color:var(--text2)">${err.message}</p>`;
+      }
+    }, 50);
+  };
+  reader.readAsText(file);
+}
+
+function init() {
+  snapshots = DATA.snapshots || [];
+  sliderIdx = snapshots.length - 1;
+
+  const slider = document.getElementById('date-slider');
+  slider.max   = Math.max(0, snapshots.length - 1);
+  slider.value = snapshots.length - 1;
+
+  if (snapshots.length) {
+    const fmt = ts => new Date(ts*1000).toLocaleDateString('pt-BR',{month:'short',year:'numeric'}).toUpperCase();
+    document.getElementById('date-start').textContent = fmt(snapshots[0].ts);
+    document.getElementById('date-end').textContent   = fmt(snapshots[snapshots.length-1].ts);
+    document.getElementById('slider-panel').classList.add('visible');
+    updateSliderDisplay();
+  }
+
+  const meta = DATA.meta || {};
+  document.getElementById('footer-meta').textContent =
+    `VRS ELO MAPS v1.0 — ${(meta.totalMaps||0).toLocaleString('pt-BR')} mapas — gerado ${meta.generatedAt?.substring(0,10)||''}`;
+
+  document.getElementById('load-panel').style.display      = 'none';
+  document.getElementById('ranking-container').style.display = 'block';
+  document.getElementById('controls-bar').style.display    = 'flex';
+
+  updateStats();
+  renderTable();
+}
+
+// ── Dados do snapshot ─────────────────────────────────────────────────────────
+function getCurrentData() {
+  const isLatest = !snapshots.length || sliderIdx >= snapshots.length - 1;
+  if (isLatest) return (mode === 'org' ? DATA?.orgRanking : DATA?.rosterRanking) || [];
+
+  const snap = snapshots[sliderIdx];
+  if (mode === 'org') {
+    return Object.entries(snap.orgs || {})
+      .map(([name, d]) => {
+        const r    = typeof d === 'number' ? d : d.rating;
+        const full = DATA.orgRanking?.find(t => t.name === name);
+        return { name, rating: r, wins: full?.wins||0, losses: full?.losses||0, matches: (full?.wins||0)+(full?.losses||0), players: [], lastMatchTs: full?.lastMatchTs||0 };
+      })
+      .filter(t => t.matches > 0)
+      .sort((a,b) => b.rating - a.rating)
+      .map((t,i) => ({...t, rank: i+1}));
+  }
+  return Object.entries(snap.rosters || {})
+    .map(([id, d]) => {
+      const name   = Array.isArray(d) ? d[0] : d.name;
+      const rating = Array.isArray(d) ? d[1] : d.rating;
+      const full   = DATA.rosterRanking?.find(r => r.rosterId === parseInt(id));
+      return { name, rating, wins: full?.wins||0, losses: full?.losses||0, matches: full?.matches||1, players: full?.players||[], rosterId: parseInt(id), lastMatchTs: full?.lastMatchTs||0 };
+    })
+    .sort((a,b) => b.rating - a.rating)
+    .map((t,i) => ({...t, rank: i+1}));
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const search = (document.getElementById('search')?.value||'').toLowerCase();
+  let data = getCurrentData();
+  const now6m = Math.floor(Date.now()/1000) - SIX_MONTHS;
+  data = data.filter(t => t.matches >= minMatches && (!search || t.name.toLowerCase().includes(search)));
+  if (hideInactive) data = data.filter(t => (t.lastMatchTs||0) >= now6m);
+
+  data.sort((a,b) => {
+    if (sortField === 'name') return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+    const va = sortField === 'wr' ? a.wins/Math.max(a.matches,1) : a[sortField] ?? a.rating;
+    const vb = sortField === 'wr' ? b.wins/Math.max(b.matches,1) : b[sortField] ?? b.rating;
+    return sortAsc ? va-vb : vb-va;
+  });
+  data = data.map((t,i) => ({...t, displayRank: i+1}));
+
+  document.getElementById('result-count').textContent = data.length + ' times';
+  const maxR = Math.max(...data.map(t=>t.rating), INIT+1);
+  const tbody = document.getElementById('ranking-body');
+  tbody.innerHTML = '';
+  const empty = document.getElementById('empty-state');
+  if (!data.length) { empty.style.display='block'; return; }
+  empty.style.display='none';
+
+  data.slice(0,200).forEach(t => {
+    const wr     = t.matches > 0 ? Math.round(t.wins/t.matches*100) : 0;
+    const delta  = Math.round((t.rating - INIT)*10)/10;
+    const barW   = Math.max(0, Math.min(100, ((t.rating-1200)/(maxR-1200))*100));
+    const rankCls  = t.displayRank<=3 ? `rank-${t.displayRank}` : '';
+    const wrCls    = wr>=55?'wr-high':wr>=45?'wr-mid':'wr-low';
+    const deltaCls = delta>0?'delta-pos':delta<0?'delta-neg':'delta-neu';
+    const tIdx   = tracked.indexOf(t.name);
+    const isT    = tIdx >= 0;
+    const tColor = isT ? CHART_COLORS[tIdx%CHART_COLORS.length] : 'var(--border)';
+    const playersHtml = mode==='roster'&&t.players?.length
+      ? `<div class="team-players">${t.players.map(p=>`<span>${p}</span>`).join(' · ')}</div>` : '';
+    const now6m2  = Math.floor(Date.now()/1000) - SIX_MONTHS;
+    const isInact = (t.lastMatchTs||0) > 0 && t.lastMatchTs < now6m2;
+    const lastDate = t.lastMatchTs ? new Date(t.lastMatchTs*1000).toLocaleDateString('pt-BR',{month:'short',year:'numeric'}) : '';
+    const inactiveBadge = isInact
+      ? `<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(255,51,85,.12);color:var(--red);margin-left:6px">inativo ${lastDate}</span>`
+      : (lastDate?`<span style="font-size:9px;color:var(--text2);margin-left:6px">${lastDate}</span>`:'');
+
+    const tr = document.createElement('tr');
+    tr.className = rankCls;
+    tr.innerHTML = `
+      <td class="col-rank"><span class="rank-num">${t.displayRank}</span></td>
+      <td style="width:22px;text-align:center">
+        <button class="track-btn ${isT?'tracked':''}" style="${isT?`background:${tColor};border-color:${tColor}`:''}"
+          onclick="toggleTrack('${t.name.replace(/'/g,"\\'")}')"></button>
+      </td>
+      <td><div class="team-name">${t.name}${inactiveBadge}</div>${playersHtml}</td>
+      <td><div class="rating-val">${t.rating}</div><div class="rating-bar-wrap"><div class="rating-bar" style="width:${barW}%"></div></div></td>
+      <td style="text-align:center"><span class="win-count">${t.wins}</span></td>
+      <td style="text-align:center"><span class="loss-count">${t.losses}</span></td>
+      <td style="text-align:center"><span class="wr-badge ${wrCls}">${wr}%</span></td>
+      <td class="col-matches">${t.matches}</td>
+      <td class="col-delta"><span class="${deltaCls}">${delta>0?'+':''}${delta}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if (data.length > 200) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="9" style="text-align:center;padding:1rem;color:var(--text2);font-size:11px">... e mais ${data.length-200} times — use os filtros para refinar</td>`;
+    tbody.appendChild(tr);
+  }
+  updateStats(data);
+}
+
+function updateStats(data) {
+  const d = data || getCurrentData();
+  document.getElementById('stat-teams').textContent = d.length;
+  document.getElementById('stat-maps').textContent  = (DATA?.meta?.totalMaps||0).toLocaleString('pt-BR');
+  document.getElementById('stat-top').textContent   = d[0]?.rating || '—';
+}
+
+// ── Slider & Play ─────────────────────────────────────────────────────────────
+function updateSliderDisplay() {
+  if (!snapshots.length) return;
+  const d = new Date(snapshots[sliderIdx].ts * 1000);
+  document.getElementById('date-display').textContent =
+    d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+}
+function onSlider() {
+  sliderIdx = parseInt(document.getElementById('date-slider').value);
+  updateSliderDisplay(); renderTable(); updateChart();
+}
+function togglePlay() {
+  playing = !playing;
+  const btn = document.getElementById('play-btn');
+  if (playing) {
+    btn.textContent = '⏸ PAUSE'; btn.classList.add('playing');
+    playTimer = setInterval(() => {
+      if (sliderIdx >= snapshots.length-1) { stopPlay(); return; }
+      sliderIdx++;
+      document.getElementById('date-slider').value = sliderIdx;
+      updateSliderDisplay(); renderTable(); updateChart();
+    }, Math.max(50, 250/playSpeed));
+  } else stopPlay();
+}
+function stopPlay() {
+  playing = false; clearInterval(playTimer);
+  const btn = document.getElementById('play-btn');
+  btn.textContent = '▶ PLAY'; btn.classList.remove('playing');
+}
+function setSpeed(s,btn) {
+  playSpeed = s;
+  document.querySelectorAll('.speed-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  if (playing) { stopPlay(); togglePlay(); }
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+function toggleTrack(name) {
+  const idx = tracked.indexOf(name);
+  if (idx >= 0) tracked.splice(idx, 1);
+  else if (tracked.length < 8) tracked.push(name);
+  updateChartBadges(); renderTable(); updateChart();
+  document.getElementById('chart-panel').classList.toggle('visible', tracked.length > 0);
+}
+function updateChartBadges() {
+  const el = document.getElementById('chart-teams');
+  el.innerHTML = '';
+  tracked.forEach((name,i) => {
+    const color = CHART_COLORS[i%CHART_COLORS.length];
+    const b = document.createElement('div');
+    b.className = 'chart-team-badge active';
+    b.style.cssText = `border-color:${color};color:${color};background:${color}22`;
+    b.textContent = name;
+    b.onclick = () => toggleTrack(name);
+    el.appendChild(b);
+  });
+}
+function updateChart() {
+  if (!tracked.length || !snapshots.length) return;
+  const labels = snapshots.map((s,i) => {
+    const d = new Date(s.ts*1000);
+    const prev = i>0 ? new Date(snapshots[i-1].ts*1000) : null;
+    const yearChanged = !prev || d.getFullYear() !== prev.getFullYear();
+    return yearChanged
+      ? d.toLocaleDateString('pt-BR',{month:'short',year:'numeric'}).toUpperCase()
+      : d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+  });
+  const datasets = tracked.map((name,i) => {
+    const color = CHART_COLORS[i%CHART_COLORS.length];
+    const pts = snapshots.map(snap => {
+      if (mode === 'org') { const v = snap.orgs?.[name]; return v != null ? (typeof v==='number'?v:v.rating) : null; }
+      const entry = Object.entries(snap.rosters||{}).find(([,d])=>(Array.isArray(d)?d[0]:d.name)===name);
+      return entry ? (Array.isArray(entry[1])?entry[1][1]:entry[1].rating) : null;
+    });
+    return { label:name, data:pts, borderColor:color, backgroundColor:color+'22', borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:0.3, fill:false, spanGaps:true };
+  });
+  const linePlugin = { id:'vline', afterDraw(chart) {
+    const {ctx,chartArea,scales} = chart; if(!chartArea) return;
+    const x = scales.x.getPixelForValue(sliderIdx);
+    ctx.save(); ctx.beginPath(); ctx.moveTo(x,chartArea.top); ctx.lineTo(x,chartArea.bottom);
+    ctx.strokeStyle='rgba(196,120,252,0.5)'; ctx.lineWidth=1; ctx.setLineDash([4,4]); ctx.stroke(); ctx.restore();
+  }};
+  if (evoChart) evoChart.destroy();
+  evoChart = new Chart(document.getElementById('evo-chart'), {
+    type:'line', data:{labels,datasets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'rgba(8,12,16,0.95)',borderColor:'#1e3a5f',borderWidth:1,
+          titleColor:'#c084fc',bodyColor:'#c8d8e8',
+          titleFont:{family:"'Share Tech Mono',monospace",size:10},
+          bodyFont:{family:"'Share Tech Mono',monospace",size:11},
+          callbacks:{title:items=>{
+            const d=new Date(snapshots[items[0].dataIndex].ts*1000);
+            return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+          }}
+        }
+      },
+      scales:{
+        x:{ticks:{color:ctx=>{const l=labels[ctx.index]||'';return !l.match(/^\d/)?'#c084fc':'#6a8aaa'},font:ctx=>{const l=labels[ctx.index]||'';return{size:9,weight:!l.match(/^\d/)?'700':'400'}},maxTicksLimit:14,maxRotation:0,callback:(v,i)=>{const l=labels[i]||'';if(!l.match(/^\d/))return l;if(i%Math.max(1,Math.floor(snapshots.length/10))===0)return l;return '';}},grid:{color:ctx=>{const l=labels[ctx.index]||'';return !l.match(/^\d/)?'rgba(196,120,252,0.15)':'rgba(30,58,95,0.3)'}}},
+        y:{ticks:{color:'#6a8aaa',font:{size:9}},grid:{color:'rgba(30,58,95,0.3)'}}
+      }
+    }, plugins:[linePlugin]
+  });
+}
+
+// ── Peaks ─────────────────────────────────────────────────────────────────────
+function renderPeaks() {
+  const peaks   = peaksMode === 'org' ? (DATA?.orgPeaks||[]) : (DATA?.rosterPeaks||[]);
+  const current = peaksMode === 'org' ? (DATA?.orgRanking||[]) : (DATA?.rosterRanking||[]);
+  const currentMap = {};
+  current.forEach(t => { currentMap[t.name] = t.rating; });
+  const search = (document.getElementById('search')?.value||'').toLowerCase();
+  const filtered = peaks.filter(p => !search || p.name.toLowerCase().includes(search));
+  const tbody = document.getElementById('peaks-body');
+  tbody.innerHTML = '';
+  filtered.slice(0,300).forEach((p,i) => {
+    const rankCls = i<3?`rank-${i+1}`:'';
+    const curr = currentMap[p.name] ?? null;
+    const drop = curr !== null ? Math.round((curr-p.rating)*10)/10 : null;
+    const dropStr = drop!==null?`<span style="color:${drop<0?'var(--red)':'var(--green)'}">${drop>0?'+':''}${drop}</span>`:'<span style="color:var(--text2)">—</span>';
+    const currStr = curr!==null?`<span style="color:${curr>=p.rating?'var(--green)':'var(--text2)'}">${curr}</span>`:'<span style="color:var(--text2)">—</span>';
+    const dateStr = new Date(p.ts*1000).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+    const tr = document.createElement('tr');
+    tr.className = rankCls;
+    tr.innerHTML = `
+      <td class="col-rank"><span class="rank-num">${i+1}</span></td>
+      <td><div class="team-name">${p.name}</div></td>
+      <td><span class="rating-val" style="color:var(--gold)">${p.rating}</span></td>
+      <td style="font-size:12px;color:var(--text2)">${dateStr}</td>
+      <td>${currStr}</td>
+      <td>${dropStr}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Mode & Sort ───────────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  ['roster','org','peaks'].forEach(x=>document.getElementById('tab-'+x).classList.toggle('active',x===m));
+  const isPeaks = m === 'peaks';
+  document.getElementById('ranking-container').style.display = isPeaks?'none':'block';
+  document.getElementById('peaks-container').style.display   = isPeaks?'block':'none';
+  document.getElementById('controls-bar').style.display      = isPeaks?'none':'flex';
+  document.getElementById('slider-panel').classList.toggle('visible', !isPeaks && snapshots.length>0);
+  if (isPeaks) { renderPeaks(); return; }
+  renderTable(); updateChart();
+}
+function setPeaksMode(m,btn) {
+  peaksMode = m;
+  document.querySelectorAll('#peaks-container .filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); renderPeaks();
+}
+function sort(field) {
+  if (sortField===field) sortAsc=!sortAsc; else{sortField=field;sortAsc=false;}
+  document.querySelectorAll('.ranking-table th').forEach(th=>th.classList.remove('sorted','asc'));
+  const th=document.getElementById('th-'+field);
+  if(th){th.classList.add('sorted');if(sortAsc)th.classList.add('asc');}
+  renderTable();
+}
+function setMin(n,btn) {
+  minMatches=n;
+  document.querySelectorAll('.filter-btn:not(#btn-active):not(#peaks-tab-roster):not(#peaks-tab-org)').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); renderTable();
+}
+function toggleActive(btn) {
+  hideInactive = !hideInactive;
+  if (hideInactive) { btn.style.borderColor='var(--red)'; btn.style.color='var(--red)'; btn.style.background='rgba(255,51,85,.08)'; }
+  else { btn.style.borderColor='var(--border)'; btn.style.color='var(--text2)'; btn.style.background=''; }
+  renderTable();
+}
+
+document.getElementById('footer-date').textContent =
+  new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+</script>
+</body>
+</html>
