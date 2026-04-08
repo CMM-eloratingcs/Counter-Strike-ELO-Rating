@@ -3,3 +3,4 @@ matchdata_stubs.json
 logs/
 demos/
 *.pyc
+elo_standings.json 
