@@ -190,14 +190,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 
 <div class="main">
   <div class="load-panel" id="load-panel">
-    <h3>// CARREGAR DADOS //</h3>
-    <p>Carregue o <strong>elo_standings.json</strong> gerado pelo <code>elo_ranking.js</code>.<br>
-    O dashboard é só um visualizador — todo cálculo já foi feito no Node.js.</p>
-    <div class="file-drop" onclick="document.getElementById('file-input').click()">
-      <input type="file" id="file-input" accept=".json" onchange="loadFile(event)">
-      <div class="file-drop-text"><strong>📂 Selecionar elo_standings.json</strong>gerado por: node elo_ranking.js matchdata.json elo_standings.json</div>
-    </div>
-    <div class="progress-bar" id="progress-bar"><div class="progress-bar-inner" id="progress-inner"></div></div>
+    <h3>// CARREGANDO DADOS //</h3>
+    <p>Buscando <strong>elo_standings.json</strong>...</p>
+    <div class="progress-bar" id="progress-bar" style="display:block"><div class="progress-bar-inner" id="progress-inner" style="width:30%"></div></div>
   </div>
 
   <div id="ranking-container" style="display:none">
@@ -270,23 +265,26 @@ let playSpeed   = 1;
 let playTimer   = null;
 
 // ── Carregar arquivo ──────────────────────────────────────────────────────────
-function loadFile(e) {
-  const file = e.target.files[0]; if (!file) return;
-  document.getElementById('progress-bar').style.display = 'block';
-  document.getElementById('progress-inner').style.width = '30%';
-  const reader = new FileReader();
-  reader.onload = ev => {
-    document.getElementById('progress-inner').style.width = '70%';
-    setTimeout(() => {
-      try {
-        DATA = JSON.parse(ev.target.result);
-        document.getElementById('progress-inner').style.width = '100%';
-        setTimeout(() => init(), 100);
-      } catch { alert('JSON inválido'); }
-    }, 50);
-  };
-  reader.readAsText(file);
+// Auto-fetch elo_standings.json da mesma pasta
+async function autoLoad() {
+  try {
+    document.getElementById('progress-inner').style.width = '50%';
+    const r = await fetch('./elo_standings.json');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    document.getElementById('progress-inner').style.width = '80%';
+    DATA = await r.json();
+    document.getElementById('progress-inner').style.width = '100%';
+    setTimeout(() => init(), 100);
+  } catch(e) {
+    document.getElementById('load-panel').innerHTML =
+      '<h3 style="color:var(--red)">// ERRO AO CARREGAR //</h3>' +
+      '<p>Não foi possível carregar o <strong>elo_standings.json</strong>.<br>' +
+      'Certifique-se que o arquivo está na mesma pasta do site.<br><br>' +
+      '<small style="color:var(--text2)">' + e.message + '</small></p>';
+  }
 }
+
+autoLoad();
 
 function init() {
   snapshots = DATA.snapshots || [];
