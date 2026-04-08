@@ -1,0 +1,5 @@
+matchdata.json
+matchdata_stubs.json
+logs/
+demos/
+*.pyc
