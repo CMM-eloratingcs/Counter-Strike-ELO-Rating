@@ -324,7 +324,12 @@ function getCurrentData() {
 
   if (mode === 'org') {
     return Object.entries(snap.orgs || {})
-      .map(([name, d]) => ({ name, rating: d.rating, wins: d.wins, losses: d.losses, matches: d.wins+d.losses, players: [] }))
+      .map(([name, rating]) => {
+        // Suporta formato compacto (número) e antigo (objeto)
+        const r = typeof rating === 'number' ? rating : rating.rating;
+        const full = DATA.orgRanking?.find(t => t.name === name);
+        return { name, rating: r, wins: full?.wins||0, losses: full?.losses||0, matches: (full?.wins||0)+(full?.losses||0), players: [] };
+      })
       .filter(t => t.matches > 0)
       .sort((a,b) => b.rating - a.rating)
       .map((t,i) => ({...t, rank: i+1}));
@@ -332,9 +337,11 @@ function getCurrentData() {
 
   return Object.entries(snap.rosters || {})
     .map(([id, d]) => {
-      // Busca jogadores do ranking final para esse rosterId
-      const full = DATA.rosterRanking?.find(r => r.rosterId === parseInt(id));
-      return { name: d.name, rating: d.rating, wins: d.wins, losses: d.losses, matches: d.wins+d.losses, players: full?.players||[], rosterId: parseInt(id) };
+      // Suporta formato compacto ([name, rating]) e antigo ({name, rating, ...})
+      const name   = Array.isArray(d) ? d[0] : d.name;
+      const rating = Array.isArray(d) ? d[1] : d.rating;
+      const full   = DATA.rosterRanking?.find(r => r.rosterId === parseInt(id));
+      return { name, rating, wins: full?.wins||0, losses: full?.losses||0, matches: (full?.wins||0)+(full?.losses||0), players: full?.players||[], rosterId: parseInt(id), lastMatchTs: full?.lastMatchTs||0 };
     })
     .filter(t => t.matches > 0)
     .sort((a,b) => b.rating - a.rating)
@@ -515,9 +522,12 @@ function updateChart() {
   const datasets = tracked.map((name,i) => {
     const color = CHART_COLORS[i%CHART_COLORS.length];
     const pts = snapshots.map(snap => {
-      if (mode === 'org') return snap.orgs?.[name]?.rating ?? null;
-      const entry = Object.entries(snap.rosters||{}).find(([,d])=>d.name===name);
-      return entry ? entry[1].rating : null;
+      if (mode === 'org') {
+        const v = snap.orgs?.[name];
+        return v != null ? (typeof v === 'number' ? v : v.rating) : null;
+      }
+      const entry = Object.entries(snap.rosters||{}).find(([,d])=> (Array.isArray(d) ? d[0] : d.name) === name);
+      return entry ? (Array.isArray(entry[1]) ? entry[1][1] : entry[1].rating) : null;
     });
     return { label:name, data:pts, borderColor:color, backgroundColor:color+'22',
              borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:0.3, fill:false, spanGaps:true };
