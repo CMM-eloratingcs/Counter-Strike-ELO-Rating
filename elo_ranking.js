@@ -86,7 +86,7 @@ function run(matches) {
     const rm         = new RosterManager();
     const orgRatings = {}, orgWins = {}, orgLoss = {}, orgLastTs = {};
     const snapshots  = [];
-    const snapCutoff = Math.floor(Date.now() / 1000) - 2 * 365 * 86400;
+    const snapCutoff = 0; // sem filtro de data — inclui todos os times em todos os snapshots
 
     function getOrg(name) {
         if (!orgRatings[name]) { orgRatings[name] = CONFIG.initialRating; orgWins[name] = 0; orgLoss[name] = 0; }
@@ -96,8 +96,7 @@ function run(matches) {
     function orgSnap() {
         const obj = {};
         for (const [name, rating] of Object.entries(orgRatings))
-            if ((orgLastTs[name] || 0) >= snapCutoff)
-                obj[name] = Math.round(rating * 10) / 10;
+            obj[name] = Math.round(rating * 10) / 10;
         return obj;
     }
 
