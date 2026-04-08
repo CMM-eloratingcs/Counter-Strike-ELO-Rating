@@ -1,5 +1,17 @@
 "use strict";
 
+/**
+ * VRS ELO Ranking — Roster-Based
+ *
+ * Modos de operação:
+ *   node elo_ranking.js matchdata.json elo_standings_base.json --full
+ *     → Gera o arquivo completo (histórico todo) — rodar uma vez
+ *
+ *   node elo_ranking.js matchdata.json elo_standings_delta.json --delta
+ *     → Gera só o delta (últimas 8 semanas + ranking atual) — rodar diariamente
+ *     → Arquivo pequeno (~5MB), commitado normalmente no git
+ */
+
 const fs = require('fs');
 
 const CONFIG = {
@@ -9,9 +21,19 @@ const CONFIG = {
     coreSize:       3,
 };
 
-const WEEK = 7 * 24 * 3600;
+const WEEK  = 7  * 24 * 3600;
+const MONTH = 30 * 24 * 3600;
+
+const MODE  = process.argv[4] || '--delta';
+const FULL  = MODE === '--full';
+const DELTA = MODE === '--delta';
+
+// Para delta: quantas semanas de snapshots incluir
+const DELTA_WEEKS = 8;
 
 function expected(ra, rb) { return 1 / (1 + Math.pow(10, (rb - ra) / 400)); }
+
+// ── Roster Manager ────────────────────────────────────────────────────────────
 
 class RosterManager {
     constructor() { this.rosters = []; this.nextId = 0; }
@@ -33,10 +55,10 @@ class RosterManager {
         return r;
     }
 
-    snapshot(cutoffTs) {
+    snapshot() {
         const obj = {};
         for (const r of this.rosters)
-            if (r.wins + r.losses > 0 && r.lastMatchTs >= cutoffTs)
+            if (r.wins + r.losses > 0)
                 obj[r.id] = [r.name, Math.round(r.rating * 10) / 10];
         return obj;
     }
@@ -53,6 +75,8 @@ class RosterManager {
             .map((t, i) => ({ rank: i + 1, ...t }));
     }
 }
+
+// ── Load matches ──────────────────────────────────────────────────────────────
 
 function loadMatches(filename) {
     process.stdout.write(`\n📂 Lendo ${filename}...`);
@@ -82,11 +106,15 @@ function loadMatches(filename) {
     return matches;
 }
 
+// ── Motor Elo ─────────────────────────────────────────────────────────────────
+
 function run(matches) {
     const rm         = new RosterManager();
     const orgRatings = {}, orgWins = {}, orgLoss = {}, orgLastTs = {};
     const snapshots  = [];
-    const snapCutoff = 0; // sem filtro de data — inclui todos os times em todos os snapshots
+    const now        = Math.floor(Date.now() / 1000);
+    const twoYearsAgo = now - 2 * 365 * 86400;
+    const deltaStart  = now - DELTA_WEEKS * WEEK;
 
     function getOrg(name) {
         if (!orgRatings[name]) { orgRatings[name] = CONFIG.initialRating; orgWins[name] = 0; orgLoss[name] = 0; }
@@ -100,48 +128,7 @@ function run(matches) {
         return obj;
     }
 
-    const minTs  = matches[0]?.matchStartTime || 0;
-    let nextSnap = minTs;
-    let idx = 0, lastPct = -1;
-    const total = matches.length;
-
-    snapshots.push({ ts: minTs, rosters: {}, orgs: {} });
-
-    while (idx < total) {
-        while (idx < total && matches[idx].matchStartTime <= nextSnap) {
-            const m  = matches[idx++];
-            const r1 = rm.get(m.team1Players, m.team1Name);
-            const r2 = rm.get(m.team2Players, m.team2Name);
-
-            const e1 = expected(r1.rating, r2.rating);
-            const s1 = m.team1Score > m.team2Score ? 1 : 0;
-            r1.rating += CONFIG.kBase * (s1 - e1);
-            r2.rating += CONFIG.kBase * ((1-s1) - (1-e1));
-            if (s1) r1.wins++; else r1.losses++;
-            if (!s1) r2.wins++; else r2.losses++;
-            r1.lastMatchTs = Math.max(r1.lastMatchTs, m.matchStartTime);
-            r2.lastMatchTs = Math.max(r2.lastMatchTs, m.matchStartTime);
-
-            const or1 = getOrg(m.team1Name), or2 = getOrg(m.team2Name);
-            const oe1 = expected(or1, or2);
-            orgRatings[m.team1Name] = or1 + CONFIG.kBase * (s1 - oe1);
-            orgRatings[m.team2Name] = or2 + CONFIG.kBase * ((1-s1) - (1-oe1));
-            if (s1) orgWins[m.team1Name]++; else orgLoss[m.team1Name]++;
-            if (!s1) orgWins[m.team2Name]++; else orgLoss[m.team2Name]++;
-            orgLastTs[m.team1Name] = Math.max(orgLastTs[m.team1Name]||0, m.matchStartTime);
-            orgLastTs[m.team2Name] = Math.max(orgLastTs[m.team2Name]||0, m.matchStartTime);
-
-            const pct = Math.floor(idx / total * 100);
-            if (pct !== lastPct) { process.stdout.write(`\r⚙️  Calculando Elo... ${pct}%  `); lastPct = pct; }
-        }
-
-        snapshots.push({ ts: nextSnap, rosters: rm.snapshot(snapCutoff), orgs: orgSnap() });
-        nextSnap += WEEK;
-        if (nextSnap > Math.floor(Date.now() / 1000)) break;
-    }
-
-    while (idx < total) {
-        const m  = matches[idx++];
+    function processMatch(m) {
         const r1 = rm.get(m.team1Players, m.team1Name);
         const r2 = rm.get(m.team2Players, m.team2Name);
         const e1 = expected(r1.rating, r2.rating);
@@ -162,7 +149,55 @@ function run(matches) {
         orgLastTs[m.team2Name] = Math.max(orgLastTs[m.team2Name]||0, m.matchStartTime);
     }
 
-    snapshots.push({ ts: Math.floor(Date.now()/1000), rosters: rm.snapshot(snapCutoff), orgs: orgSnap() });
+    if (DELTA) {
+        // ── Modo delta: processa tudo em 2 fases ──────────────────────────────
+        // Fase 1: processa todas as partidas antigas sem gerar snapshots (rápido)
+        let idx = 0, lastPct = -1;
+        const total = matches.length;
+
+        // Processa partidas anteriores ao delta sem snapshot
+        while (idx < total && matches[idx].matchStartTime < deltaStart) {
+            processMatch(matches[idx++]);
+            const pct = Math.floor(idx / total * 100);
+            if (pct !== lastPct) { process.stdout.write(`\r⚙️  Calculando Elo... ${pct}%  `); lastPct = pct; }
+        }
+
+        // Fase 2: processa partidas recentes gerando snapshots semanais
+        let nextSnap = deltaStart;
+        while (idx < total) {
+            while (idx < total && matches[idx].matchStartTime <= nextSnap) {
+                processMatch(matches[idx++]);
+                const pct = Math.floor(idx / total * 100);
+                if (pct !== lastPct) { process.stdout.write(`\r⚙️  Calculando Elo... ${pct}%  `); lastPct = pct; }
+            }
+            snapshots.push({ ts: nextSnap, rosters: rm.snapshot(), orgs: orgSnap() });
+            nextSnap += WEEK;
+            if (nextSnap > now) break;
+        }
+
+    } else {
+        // ── Modo full: snapshots mensais para antigos, semanais para recentes ─
+        const minTs = matches[0]?.matchStartTime || 0;
+        let nextSnap = minTs;
+        let idx = 0, lastPct = -1;
+        const total = matches.length;
+
+        snapshots.push({ ts: minTs, rosters: {}, orgs: {} });
+
+        while (idx < total) {
+            while (idx < total && matches[idx].matchStartTime <= nextSnap) {
+                processMatch(matches[idx++]);
+                const pct = Math.floor(idx / total * 100);
+                if (pct !== lastPct) { process.stdout.write(`\r⚙️  Calculando Elo... ${pct}%  `); lastPct = pct; }
+            }
+            snapshots.push({ ts: nextSnap, rosters: rm.snapshot(), orgs: orgSnap() });
+            nextSnap += nextSnap < twoYearsAgo ? MONTH : WEEK;
+            if (nextSnap > now) break;
+        }
+    }
+
+    // Snapshot final com estado atual
+    snapshots.push({ ts: now, rosters: rm.snapshot(), orgs: orgSnap() });
     console.log('\r⚙️  Calculando Elo... 100%  ');
 
     const orgRanking = Object.entries(orgRatings)
@@ -178,6 +213,8 @@ function run(matches) {
 
     return { rosterRanking: rm.ranking(), orgRanking, snapshots };
 }
+
+// ── Picos ─────────────────────────────────────────────────────────────────────
 
 function calcPeaks(snapshots) {
     const rPeaks = {}, oPeaks = {};
@@ -200,42 +237,32 @@ function calcPeaks(snapshots) {
     };
 }
 
-// Escrita em stream — evita RangeError: Invalid string length
+// ── Stream write ──────────────────────────────────────────────────────────────
+
 function writeStream(outFile, meta, rosterRanking, orgRanking, rosterPeaks, orgPeaks, snapshots) {
     const fd = fs.openSync(outFile, 'w');
     const w  = (s) => fs.writeSync(fd, s);
-
     w('{"meta":' + JSON.stringify(meta));
-
     w(',"rosterRanking":[');
-    rosterRanking.forEach((t, i) => { w((i?',':'') + JSON.stringify(t)); });
-    w(']');
-
-    w(',"orgRanking":[');
-    orgRanking.forEach((t, i) => { w((i?',':'') + JSON.stringify(t)); });
-    w(']');
-
-    w(',"rosterPeaks":[');
-    rosterPeaks.forEach((p, i) => { w((i?',':'') + JSON.stringify(p)); });
-    w(']');
-
-    w(',"orgPeaks":[');
-    orgPeaks.forEach((p, i) => { w((i?',':'') + JSON.stringify(p)); });
-    w(']');
-
-    w(',"snapshots":[');
-    snapshots.forEach((snap, i) => { w((i?',':'') + JSON.stringify(snap)); });
+    rosterRanking.forEach((t,i) => { w((i?',':'') + JSON.stringify(t)); });
+    w('],"orgRanking":[');
+    orgRanking.forEach((t,i) => { w((i?',':'') + JSON.stringify(t)); });
+    w('],"rosterPeaks":[');
+    rosterPeaks.forEach((p,i) => { w((i?',':'') + JSON.stringify(p)); });
+    w('],"orgPeaks":[');
+    orgPeaks.forEach((p,i) => { w((i?',':'') + JSON.stringify(p)); });
+    w('],"snapshots":[');
+    snapshots.forEach((s,i) => { w((i?',':'') + JSON.stringify(s)); });
     w(']}');
-
     fs.closeSync(fd);
 }
 
-function printTop(ranking, n=30) {
+// ── Print ─────────────────────────────────────────────────────────────────────
+
+function printTop(ranking, n=20) {
     console.log('\n╔══════════════════════════════════════════════════════════╗');
     console.log('║     VRS ELO — Roster-Based (core ≥ 3)                   ║');
     console.log('╠══════╦═══════════════════════════╦═══════╦═════╦════════╣');
-    console.log('║ Rank ║ Time                      ║ Rating║  W  ║ Partid.║');
-    console.log('╠══════╬═══════════════════════════╬═══════╬═════╬════════╣');
     ranking.slice(0,n).forEach(t => {
         const rk=String(t.rank).padStart(4), nm=t.name.padEnd(25);
         const rt=String(t.rating).padStart(7), w=String(t.wins).padStart(5), m=String(t.matches).padStart(7);
@@ -244,9 +271,13 @@ function printTop(ranking, n=30) {
     console.log('╚══════╩═══════════════════════════╩═══════╩═════╩════════╝');
 }
 
+// ── Main ──────────────────────────────────────────────────────────────────────
+
 function main() {
     const dataFile = process.argv[2] || './matchdata.json';
-    const outFile  = process.argv[3] || './elo_standings.json';
+    const outFile  = process.argv[3] || './elo_standings_delta.json';
+
+    console.log(`\n🎯 Modo: ${FULL ? 'FULL (histórico completo)' : 'DELTA (últimas ' + DELTA_WEEKS + ' semanas)'}`);
 
     const matches = loadMatches(dataFile);
     const { rosterRanking, orgRanking, snapshots } = run(matches);
@@ -261,9 +292,11 @@ function main() {
         dataWindowDays: CONFIG.dataWindowDays,
         initialRating:  CONFIG.initialRating,
         kBase:          CONFIG.kBase,
+        mode:           FULL ? 'full' : 'delta',
+        deltaWeeks:     DELTA ? DELTA_WEEKS : null,
     };
 
-    process.stdout.write(`\n💾 Salvando ${outFile} em stream...`);
+    process.stdout.write(`\n💾 Salvando ${outFile}...`);
     writeStream(outFile, meta, rosterRanking, orgRanking, rosterPeaks, orgPeaks, snapshots);
     const kb = Math.round(fs.statSync(outFile).size / 1024);
     console.log(` ${kb}KB ✅`);

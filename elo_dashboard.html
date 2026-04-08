@@ -265,23 +265,63 @@ let playSpeed   = 1;
 let playTimer   = null;
 
 // ── Carregar arquivo ──────────────────────────────────────────────────────────
-// Auto-fetch elo_standings.json da mesma pasta
+// Auto-fetch: tenta carregar base + delta e mescla, ou só delta se não tiver base
 async function autoLoad() {
   try {
+    document.getElementById('progress-inner').style.width = '20%';
+
+    // Tenta carregar o delta (sempre existe — atualizado diariamente)
+    const rDelta = await fetch('./elo_standings_delta.json');
+    if (!rDelta.ok) throw new Error('elo_standings_delta.json não encontrado (HTTP ' + rDelta.status + ')');
     document.getElementById('progress-inner').style.width = '50%';
-    const r = await fetch('./elo_standings.json');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    document.getElementById('progress-inner').style.width = '80%';
-    DATA = await r.json();
+    const delta = await rDelta.json();
+
+    // Tenta carregar o base do Cloudflare R2 (histórico completo)
+    let base = null;
+    try {
+      const rBase = await fetch('https://pub-91a49c24f7b145479056386e49d897da.r2.dev/elo_standings_base.json');
+      if (rBase.ok) {
+        document.getElementById('progress-inner').style.width = '75%';
+        base = await rBase.json();
+      }
+    } catch(e) { /* base não disponível — usa só delta */ }
+
+    // Mescla: base tem o histórico, delta tem o ranking atual + snapshots recentes
+    if (base && delta) {
+      // Remove snapshots do base que se sobrepõem com o delta
+      const deltaStart = delta.snapshots?.[0]?.ts || 0;
+      const baseSnaps  = (base.snapshots || []).filter(s => s.ts < deltaStart);
+      DATA = {
+        ...delta, // ranking atual, peaks, meta do delta
+        snapshots: [...baseSnaps, ...(delta.snapshots || [])], // histórico completo
+        // Peaks: usa o maior entre base e delta
+        rosterPeaks: mergePeaks(base.rosterPeaks, delta.rosterPeaks, 'rosterId'),
+        orgPeaks:    mergePeaks(base.orgPeaks, delta.orgPeaks, 'name'),
+        meta: { ...delta.meta, hasBase: true },
+      };
+    } else {
+      DATA = delta;
+    }
+
     document.getElementById('progress-inner').style.width = '100%';
     setTimeout(() => init(), 100);
   } catch(e) {
     document.getElementById('load-panel').innerHTML =
       '<h3 style="color:var(--red)">// ERRO AO CARREGAR //</h3>' +
-      '<p>Não foi possível carregar o <strong>elo_standings.json</strong>.<br>' +
-      'Certifique-se que o arquivo está na mesma pasta do site.<br><br>' +
+      '<p>Não foi possível carregar os dados.<br>' +
       '<small style="color:var(--text2)">' + e.message + '</small></p>';
   }
+}
+
+function mergePeaks(basePeaks, deltaPeaks, key) {
+  if (!basePeaks) return deltaPeaks || [];
+  if (!deltaPeaks) return basePeaks || [];
+  const map = {};
+  for (const p of basePeaks)  map[p[key]] = p;
+  for (const p of deltaPeaks) {
+    if (!map[p[key]] || p.rating > map[p[key]].rating) map[p[key]] = p;
+  }
+  return Object.values(map).sort((a,b) => b.rating - a.rating).map((p,i) => ({...p, rank: i+1}));
 }
 
 autoLoad();
