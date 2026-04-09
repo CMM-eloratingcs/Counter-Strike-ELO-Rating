@@ -28,8 +28,31 @@ const MODE  = process.argv[4] || '--delta';
 const FULL  = MODE === '--full';
 const DELTA = MODE === '--delta';
 
-// Para delta: quantas semanas de snapshots incluir
-const DELTA_WEEKS = 8;
+// Para delta: lê a data do último snapshot do base para saber de onde começar
+// Se não existir base, usa 2 semanas atrás como fallback
+function getDeltaStart() {
+    // Procura o base na mesma pasta do matchdata.json ou no diretório atual
+    const dataFile = process.argv[2] || './matchdata.json';
+    const baseFile = dataFile.replace(/[^/\\]*$/, 'elo_standings_base.json');
+    const candidates = [baseFile, './elo_standings_base.json'];
+
+    for (const f of candidates) {
+        try {
+            if (fs.existsSync(f)) {
+                const base = JSON.parse(fs.readFileSync(f, 'utf8'));
+                const snaps = base.snapshots || [];
+                if (snaps.length > 0) {
+                    const lastTs = snaps[snaps.length - 1].ts;
+                    console.log(`\n📌 Base: ${f} — delta começa de: ${new Date(lastTs*1000).toISOString().substring(0,10)}`);
+                    return lastTs;
+                }
+            }
+        } catch(e) {}
+    }
+    const fallback = Math.floor(Date.now()/1000) - 2 * 7 * 24 * 3600;
+    console.log(`\n📌 Base não encontrado — delta começa de: ${new Date(fallback*1000).toISOString().substring(0,10)} (fallback 2 semanas)`);
+    return fallback;
+}
 
 function expected(ra, rb) { return 1 / (1 + Math.pow(10, (rb - ra) / 400)); }
 
@@ -114,7 +137,7 @@ function run(matches) {
     const snapshots  = [];
     const now        = Math.floor(Date.now() / 1000);
     const twoYearsAgo = now - 2 * 365 * 86400;
-    const deltaStart  = now - DELTA_WEEKS * WEEK;
+    const deltaStart  = DELTA ? getDeltaStart() : 0;
 
     function getOrg(name) {
         if (!orgRatings[name]) { orgRatings[name] = CONFIG.initialRating; orgWins[name] = 0; orgLoss[name] = 0; }
@@ -277,7 +300,7 @@ function main() {
     const dataFile = process.argv[2] || './matchdata.json';
     const outFile  = process.argv[3] || './elo_standings_delta.json';
 
-    console.log(`\n🎯 Modo: ${FULL ? 'FULL (histórico completo)' : 'DELTA (últimas ' + DELTA_WEEKS + ' semanas)'}`);
+    console.log(`\n🎯 Modo: ${FULL ? 'FULL (histórico completo)' : 'DELTA (a partir do base)'}`);
 
     const matches = loadMatches(dataFile);
     const { rosterRanking, orgRanking, snapshots } = run(matches);
@@ -293,7 +316,7 @@ function main() {
         initialRating:  CONFIG.initialRating,
         kBase:          CONFIG.kBase,
         mode:           FULL ? 'full' : 'delta',
-        deltaWeeks:     DELTA ? DELTA_WEEKS : null,
+        deltaStart:     DELTA ? getDeltaStart() : null,
     };
 
     process.stdout.write(`\n💾 Salvando ${outFile}...`);
