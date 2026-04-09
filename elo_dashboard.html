@@ -258,7 +258,7 @@ let sortAsc     = false;
 let minMatches  = 0;
 let hideInactive = false;
 const SIX_MONTHS = 6 * 30 * 24 * 3600;
-let tracked     = [];     // nomes de times no gráfico
+let tracked     = [];  // { name, rosterId } para roster, { name } para org
 let evoChart    = null;
 let playing     = false;
 let playSpeed   = 1;
@@ -427,7 +427,7 @@ function renderTable() {
     const rankCls = t.displayRank<=3 ? `rank-${t.displayRank}` : '';
     const wrCls   = wr>=55?'wr-high':wr>=45?'wr-mid':'wr-low';
     const deltaCls= delta>0?'delta-pos':delta<0?'delta-neg':'delta-neu';
-    const tIdx    = tracked.indexOf(t.name);
+    const tIdx    = tracked.findIndex(tr => (tr.rosterId != null ? tr.rosterId : tr.name) === (t.rosterId ?? t.name));
     const isT     = tIdx >= 0;
     const tColor  = isT ? CHART_COLORS[tIdx%CHART_COLORS.length] : 'var(--border)';
     const playersHtml = mode==='roster'&&t.players?.length
@@ -449,7 +449,7 @@ function renderTable() {
       <td class="col-rank"><span class="rank-num">${t.displayRank}</span></td>
       <td style="width:22px;text-align:center">
         <button class="track-btn ${isT?'tracked':''}" style="${isT?`background:${tColor};border-color:${tColor}`:''}"
-          onclick="toggleTrack('${t.name.replace(/'/g,"\\'")}')"></button>
+          onclick="toggleTrack('${t.name.replace(/'/g,"\\'")}', ${t.rosterId ?? 'null'})"></button>
       </td>
       <td>
         <div class="team-name">${t.name}${inactiveBadge}</div>
@@ -527,10 +527,11 @@ function setSpeed(s,btn) {
 }
 
 // ── Gráfico de evolução ───────────────────────────────────────────────────────
-function toggleTrack(name) {
-  const idx = tracked.indexOf(name);
+function toggleTrack(name, rosterId) {
+  const key = rosterId != null ? rosterId : name;
+  const idx = tracked.findIndex(t => (t.rosterId != null ? t.rosterId : t.name) === key);
   if (idx >= 0) tracked.splice(idx, 1);
-  else if (tracked.length < 8) tracked.push(name);
+  else if (tracked.length < 8) tracked.push({ name, rosterId: rosterId ?? null });
   updateChartBadges();
   renderTable();
   updateChart();
@@ -540,13 +541,13 @@ function toggleTrack(name) {
 function updateChartBadges() {
   const el = document.getElementById('chart-teams');
   el.innerHTML = '';
-  tracked.forEach((name,i) => {
+  tracked.forEach((t,i) => {
     const color = CHART_COLORS[i%CHART_COLORS.length];
     const b = document.createElement('div');
     b.className = 'chart-team-badge active';
     b.style.cssText = `border-color:${color};color:${color};background:${color}22`;
-    b.textContent = name;
-    b.onclick = () => toggleTrack(name);
+    b.textContent = t.name;
+    b.onclick = () => toggleTrack(t.name, t.rosterId);
     el.appendChild(b);
   });
 }
@@ -563,17 +564,22 @@ function updateChart() {
       : d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
   });
 
-  const datasets = tracked.map((name,i) => {
+  const datasets = tracked.map((t,i) => {
     const color = CHART_COLORS[i%CHART_COLORS.length];
     const pts = snapshots.map(snap => {
       if (mode === 'org') {
-        const v = snap.orgs?.[name];
+        const v = snap.orgs?.[t.name];
         return v != null ? (typeof v === 'number' ? v : v.rating) : null;
       }
-      const entry = Object.entries(snap.rosters||{}).find(([,d])=> (Array.isArray(d) ? d[0] : d.name) === name);
+      // Modo roster: busca por rosterId (preciso) se disponível, senão por nome
+      if (t.rosterId != null) {
+        const d = snap.rosters?.[String(t.rosterId)];
+        return d != null ? (Array.isArray(d) ? d[1] : d.rating) : null;
+      }
+      const entry = Object.entries(snap.rosters||{}).find(([,d])=> (Array.isArray(d) ? d[0] : d.name) === t.name);
       return entry ? (Array.isArray(entry[1]) ? entry[1][1] : entry[1].rating) : null;
     });
-    return { label:name, data:pts, borderColor:color, backgroundColor:color+'22',
+    return { label:t.name, data:pts, borderColor:color, backgroundColor:color+'22',
              borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:0.3, fill:false, spanGaps:true };
   });
 
