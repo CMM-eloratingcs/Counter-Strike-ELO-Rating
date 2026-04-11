@@ -370,10 +370,9 @@ function getCurrentData() {
   if (mode === 'org') {
     return Object.entries(snap.orgs || {})
       .map(([name, rating]) => {
-        // Suporta formato compacto (número) e antigo (objeto)
         const r = typeof rating === 'number' ? rating : rating.rating;
         const full = DATA.orgRanking?.find(t => t.name === name);
-        return { name, rating: r, wins: full?.wins||0, losses: full?.losses||0, matches: (full?.wins||0)+(full?.losses||0), players: [] };
+        return { name, rating: r, wins: full?.wins||0, losses: full?.losses||0, matches: (full?.wins||0)+(full?.losses||0), players: [], lastMatchTs: full?.lastMatchTs||0 };
       })
       .filter(t => t.matches > 0)
       .sort((a,b) => b.rating - a.rating)
@@ -384,7 +383,6 @@ function getCurrentData() {
     .map(([id, d]) => {
       const name   = Array.isArray(d) ? d[0] : d.name;
       const rating = Array.isArray(d) ? d[1] : d.rating;
-      // wins/losses/lastMatchTs vêm do ranking final (totais históricos)
       const full   = DATA.rosterRanking?.find(r => r.rosterId === parseInt(id));
       return { name, rating, wins: full?.wins||0, losses: full?.losses||0, matches: full?.matches||1, players: full?.players||[], rosterId: parseInt(id), lastMatchTs: full?.lastMatchTs||0 };
     })
